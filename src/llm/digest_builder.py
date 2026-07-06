@@ -47,7 +47,6 @@ async def build_digest(input_: DigestInput) -> DigestOutput:
     raw = PROMPT_PATH.read_text(encoding="utf-8")
     system_tpl, user_tpl = _split_prompt(raw)
 
-    # внутри build_digest:
     client = get_client()
     model = settings.OPENAI_MODEL_DIGEST
 
@@ -57,14 +56,19 @@ async def build_digest(input_: DigestInput) -> DigestOutput:
         logger.info("digest_built", posts=len(input_.posts), tokens=tokens)
         return DigestOutput(content_md=text.strip())
 
-    # Нарезка по категориям при большом объёме
+    # Нарезка по категориям при большом объёме (Этап 1: idea по opportunity)
     logger.info("digest_chunked", total=len(input_.posts))
     groups = {
-        "pain": [p for p in input_.posts if p.category == "pain"],
-        "case_idea": [p for p in input_.posts if p.category in ("case", "idea")],
+        "pain": [p for p in input_.posts if p.category == "pain" or p.problem],
+        "idea": [
+            p for p in input_.posts
+            if p.category in ("case", "idea") or p.opportunity
+        ],
         "high_engagement": [
             p for p in input_.posts
-            if (p.rating is not None and p.rating >= 50) or p.relevance_score >= 9
+            if (p.engagement is not None and p.engagement >= 50)
+            or (p.rating is not None and p.rating >= 50)
+            or p.relevance_score >= 9
         ],
         "trends": input_.posts,  # для трендов нужна полная выборка
     }
@@ -77,5 +81,4 @@ async def build_digest(input_: DigestInput) -> DigestOutput:
         text, _ = await client.complete_text(system=system, user=user, model=model)
         parts.append(text.strip())
 
-    # Простая конкатенация; в проде стоит добавить дедуп секций, но для MVP достаточно.
     return DigestOutput(content_md="\n\n".join(parts))

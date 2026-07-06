@@ -6,9 +6,13 @@ services:
     env_file: .env
     volumes:
       - ./config:/app/config
+      - trend-radar-data:/data
     command: python -m src.main run
     logging:
       driver: json-file
       options:
         max-size: "10m"
         max-file: "3"
+
+volumes:
+  trend-radar-data:

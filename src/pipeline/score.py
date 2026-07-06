@@ -1,3 +1,5 @@
+# src/pipeline/score.py
+
 import asyncio
 
 import structlog

@@ -1,9 +1,13 @@
+# src/main.py
+
 import asyncio
 import signal
+from pathlib import Path
 
 import structlog
 import typer
 
+from src.settings import settings
 from src.pipeline.score import run_score
 from src.pipeline.digest import run_digest
 from src.utils.logging import setup_logging
@@ -53,12 +57,31 @@ async def _run_async() -> None:
         )
     finally:
         log.info("shutdown.begin")
-        scheduler.shutdown(wait=True)
-        await dp.stop_polling()
+
+        # Каждый шаг в своём try — чтобы сбой одного не сорвал остальную очистку.
+        try:
+            scheduler.shutdown(wait=True)
+        except Exception as e:
+            log.warning("shutdown.scheduler_error", error=str(e))
+
+        # stop_polling кидает RuntimeError, если polling не стартовал (падение на bot.me()).
+        try:
+            await dp.stop_polling()
+        except RuntimeError:
+            pass
+        except Exception as e:
+            log.warning("shutdown.stop_polling_error", error=str(e))
+
         if not polling_task.done():
             polling_task.cancel()
-        await asyncio.gather(polling_task, return_exceptions=True)
-        await bot.session.close()
+        await asyncio.gather(polling_task, stop_task, return_exceptions=True)
+
+        # Критично: закрыть сессию, иначе Telegram держит getUpdates → Conflict.
+        try:
+            await bot.session.close()
+        except Exception as e:
+            log.warning("shutdown.session_close_error", error=str(e))
+
         log.info("shutdown.done")
 
 
@@ -106,6 +129,34 @@ def bot() -> None:
     """Запустить только Telegram-бот (без scheduler)."""
     from src.bot.bot import run_bot
     asyncio.run(run_bot())
+
+
+@app.command("tg_login")
+def tg_login() -> None:
+    """Разовая интерактивная авторизация Telethon для чтения каналов."""
+    asyncio.run(_tg_login_async())
+
+
+async def _tg_login_async() -> None:
+    from telethon import TelegramClient
+    from src.sources.telegram import TELETHON_SESSION_PATH
+
+    if not settings.TG_API_ID or not settings.TG_API_HASH:
+        raise typer.BadParameter("Set TG_API_ID and TG_API_HASH before tg_login.")
+
+    Path(TELETHON_SESSION_PATH).parent.mkdir(parents=True, exist_ok=True)
+    client = TelegramClient(
+        TELETHON_SESSION_PATH,
+        settings.TG_API_ID,
+        settings.TG_API_HASH,
+    )
+    try:
+        await client.start()
+        me = await client.get_me()
+        username = getattr(me, "username", None) or getattr(me, "id", "unknown")
+        typer.echo(f"Telethon session is ready for {username}.")
+    finally:
+        await client.disconnect()
 
 
 @app.command()

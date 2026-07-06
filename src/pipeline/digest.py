@@ -1,3 +1,5 @@
+# src/pipeline/digest.py
+
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 

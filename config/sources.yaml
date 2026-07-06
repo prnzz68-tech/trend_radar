@@ -1,53 +1,173 @@
+# config/sources.yaml
+
 sources:
   - name: bigdata
     type: habr
     enabled: true
-    params:
-      hub: bigdata #artificial_intelligence   # или ml, или machine_learning
+    filters:
       min_rating: 5
+    params:
+      hub: bigdata   # artificial_intelligence / ml / machine_learning
 
   - name: habr_python
     type: habr
     enabled: true
+    filters:
+      min_rating: 5
     params:
       hub: python
-      min_rating: 5
 
   - name: data_engineering
     type: habr
     enabled: true
+    filters:
+      min_rating: 3
     params:
       hub: data_engineering
-      min_rating: 3
 
   - name: analysis_design
     type: habr
     enabled: true
+    filters:
+      min_rating: 5
     params:
       hub: analysis_design
-      min_rating: 5
 
   - name: dwh
     type: habr
     enabled: true
+    filters:
+      min_rating: 3
     params:
       hub: dwh
-      min_rating: 3
 
   - name: devops
     type: habr
     enabled: true
+    filters:
+      min_rating: 3
     params:
       hub: devops
-      min_rating: 3
 
   - name: sql
     type: habr
     enabled: true
+    filters:
+      min_rating: 3
     params:
       hub: sql
-      min_rating: 3
 
 
+  # --- Универсальный RSS (Этап 4) ---
+  - name: hackernews
+    type: rss_generic
+    enabled: true
+    filters:
+      min_engagement: 100
+    params:
+      url: https://hnrss.org/newest?points=100
+
+  - name: indiehackers
+    type: rss_generic
+    enabled: true
+    params:
+      url: https://www.indiehackers.com/rss
 
 
+  # --- Reddit (Этап 5) ---
+  - name: reddit_saas
+    type: reddit
+    enabled: true
+    filters:
+      min_engagement: 20
+    params:
+      subreddits: [ SaaS ]
+      listing: top
+      time_filter: week
+      limit: 50
+
+  - name: reddit_startups
+    type: reddit
+    enabled: true
+    filters:
+      min_engagement: 30
+    params:
+      subreddits: [ startups ]
+      listing: top
+      time_filter: week
+      limit: 50
+
+  - name: reddit_entrepreneur
+    type: reddit
+    enabled: true
+    filters:
+      min_engagement: 30
+    params:
+      subreddits: [ Entrepreneur ]
+      listing: top
+      time_filter: week
+      limit: 50
+
+  - name: reddit_sideproject
+    type: reddit
+    enabled: false
+    filters:
+      min_engagement: 10
+    params:
+      subreddits: [ SideProject ]
+      listing: new
+      limit: 50
+
+
+  # --- Product Hunt (Этап 6) ---
+  - name: producthunt_developer_tools
+    type: producthunt
+    enabled: true
+    params:
+      topic: developer-tools
+      limit: 30
+
+  - name: producthunt_productivity
+    type: producthunt
+    enabled: true
+    params:
+      topic: productivity
+      limit: 30
+
+  - name: producthunt_artificial_intelligence
+    type: producthunt
+    enabled: true
+    params:
+      topic: artificial-intelligence
+      limit: 30
+
+
+  # --- VK (Этап 7) ---
+  - name: vk_ru_tech
+    type: vk
+    enabled: true
+    filters:
+      min_engagement: 20
+    params:
+      groups: [ tproger, proglib, habr ]
+      limit: 50
+
+
+  # --- Telegram-каналы (Этап 8) ---
+  - name: telegram_startups
+    type: telegram
+    enabled: true
+    params:
+      channels: [ startupsi, addmeto ]
+      limit: 50
+
+
+  # --- YouTube (Этап 9) ---
+  - name: youtube_startup_data
+    type: youtube
+    enabled: true
+    params:
+      channel_ids:
+        - UCcefcZRL2oaA_uBNeo5UOWg   # Y Combinator
+        - UC4bq21IPPbpu0Qrsl7LW0sw   # Data Council
+      limit: 20

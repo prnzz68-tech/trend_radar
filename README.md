@@ -1,262 +1,506 @@
-# 📡 Trend Radar
+# Trend Radar
 
-> Автоматический сбор и LLM-анализ постов из тематических источников с еженедельным дайджестом в Telegram.
+Trend Radar - сервис для регулярного поиска трендов, болей аудитории и идей для проектов. Он собирает публикации из разных площадок, сохраняет их в PostgreSQL, оценивает через LLM по вашему профилю интересов и отправляет итоговый дайджест в Telegram.
 
-[![Python](https://img.shields.io/badge/Python-3.11-blue.svg)](https://www.python.org/)
-[![Docker](https://img.shields.io/badge/Docker-ready-brightgreen.svg)](https://www.docker.com/)
-[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-15-336791.svg)](https://www.postgresql.org/)
-[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+Проект заточен под ниши: данные, системный анализ, MVP, автоматизация, SaaS, стартапы, инструменты для разработчиков и продуктовые идеи.
 
----
+## Что Уже Умеет
 
-## 🎯 Зачем это нужно
+- Собирать посты из Habr, RSS/Atom, Reddit, Product Hunt, VK, Telegram-каналов и YouTube.
+- Применять общие фильтры по рейтингу и вовлеченности на уровне ядра.
+- Защищаться от лишних HTTP-запросов через per-domain throttling.
+- Хранить посты, оценки, дайджесты и историю доставок в PostgreSQL.
+- Оценивать посты через OpenAI: релевантность, категория, краткое резюме, боль, продуктовая возможность и темы.
+- Собирать дайджест через LLM и отправлять его в Telegram.
+- Работать в ручном CLI-режиме или автономно через APScheduler.
+- Управляться из Telegram-бота: дайджест, дайджест за сегодня, статус, ручной collect+score.
 
-Каждый день в Habr, Reddit, VK, Telegram-каналах и YouTube появляются сотни постов. Читать всё вручную — невозможно. **Trend Radar** делает это за вас:
+## Как Это Работает
 
-- 🔍 **Собирает** посты из нескольких источников ежедневно
-- 🧠 **Оценивает** каждый пост через LLM на релевантность вашему профилю
-- 📊 **Группирует** по категориям: тренды, боли, кейсы, идеи
-- 📬 **Присылает** структурированный дайджест в Telegram раз в неделю
-
-**Ниши под прицелом:** данные, системный анализ, MVP, автоматизация, стартапы.
-
----
-
-## ✨ Возможности
-
-| | |
-|---|---|
-| 🔌 **Plugin-based источники** | Добавить новый источник = один файл, без правок ядра |
-| 🤖 **Двухуровневая LLM-обработка** | `gpt-4o-mini` для оценки, `gpt-4o` для финальной сборки |
-| ♻️ **Идемпотентность** | Дубли исключены на уровне БД |
-| ⏰ **Автономная работа** | APScheduler внутри Docker-контейнера |
-| 📱 **Управление из Telegram** | `/digest`, `/status`, `/help` |
-| 📜 **История** | Все дайджесты и доставки хранятся в Postgres |
-
----
-
-## 🏗 Архитектура (коротко)
-
-```
-┌─────────────┐    ┌─────────┐    ┌─────────┐    ┌──────────┐    ┌──────────┐
-│  Sources    │───▶│ Collect │───▶│  Score  │───▶│  Digest  │───▶│  Deliver │
-│ habr/rss/.. │    │ (daily) │    │  (LLM)  │    │  (LLM)   │    │ (TG bot) │
-└─────────────┘    └─────────┘    └─────────┘    └──────────┘    └──────────┘
-                        │              │              │              │
-                        └──────────────┴──────────────┴──────────────┘
-                                       ▼
-                                ┌──────────────┐
-                                │  PostgreSQL  │
-                                └──────────────┘
+```text
+config/sources.yaml
+        |
+        v
+Sources -> collect -> PostgreSQL -> score -> post_scores -> digest -> digests -> deliver -> Telegram
+             ^             |          ^                       ^
+             |             |          |                       |
+             |             v          |                       |
+             +------ common filters   OpenAI                  config/prompts
 ```
 
-Каждый шаг **атомарен** и перезапускается отдельно. Полные детали — в [`ARCHITECTURE.md`](./ARCHITECTURE.md).
+Основной пайплайн состоит из четырех независимых шагов:
 
----
+1. `collect` - читает активные источники из `config/sources.yaml`, забирает новые посты и сохраняет их без дублей.
+2. `score` - берет неоцененные посты и отправляет их в OpenAI для структурированной оценки.
+3. `digest` - выбирает лучшие посты за период и формирует Markdown-дайджест.
+4. `deliver` - отправляет сохраненный дайджест в Telegram и отмечает посты как доставленные.
 
-## 🛠 Технологии
+Каждый шаг можно запускать отдельно, поэтому пайплайн удобно отлаживать по частям.
 
-| Слой | Стек |
+## Архитектура Проекта
+
+Подробная архитектура описана в [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md). Коротко:
+
+```text
+trend_researcher/
+├── config/
+│   ├── sources.yaml          # список источников и фильтры
+│   └── prompts/              # профиль пользователя и LLM-промпты
+├── docs/
+│   ├── ARCHITECTURE.md       # архитектурный источник правды
+│   └── PROMPTS.md            # промпты этапов разработки
+├── src/
+│   ├── main.py               # CLI и entrypoint контейнера
+│   ├── scheduler.py          # APScheduler jobs
+│   ├── settings.py           # переменные окружения
+│   ├── db/                   # SQLAlchemy, repository, init.sql
+│   ├── schemas/              # Pydantic-контракты
+│   ├── sources/              # коннекторы источников
+│   ├── llm/                  # OpenAI client, scorer, digest builder
+│   ├── pipeline/             # collect, score, digest, deliver
+│   ├── bot/                  # aiogram-бот
+│   └── utils/                # HTTP, retry, throttle, logging
+├── tests/                    # pytest-тесты источников и утилит
+├── Dockerfile
+├── docker-compose.yml
+└── requirements.txt
+```
+
+### Главные Контракты
+
+Все источники возвращают `RawPost`:
+
+```text
+source_name, external_id, url, title, author, content,
+published_at, rating, engagement, raw
+```
+
+LLM возвращает `PostScore`:
+
+```text
+relevance_score, category, summary, problem, opportunity, topics
+```
+
+Контракты лежат в `src/schemas/`. Источники не пишут напрямую в БД и не вызывают LLM; они только приводят внешние данные к общей модели.
+
+## Поддерживаемые Источники
+
+| Type | Файл | Что собирает | Основная метрика |
+|---|---|---|---|
+| `habr` | `src/sources/habr.py` | статьи из RSS хабов Habr | `rating`, если доступен |
+| `rss_generic` | `src/sources/rss_generic.py` | любой RSS/Atom | `engagement`, если фид отдает метрики |
+| `reddit` | `src/sources/reddit.py` | посты из сабреддитов | upvotes |
+| `producthunt` | `src/sources/producthunt.py` | запуски по топикам Product Hunt | votes |
+| `vk` | `src/sources/vk.py` | посты VK-пабликов | likes + comments + reposts |
+| `telegram` | `src/sources/telegram.py` | сообщения Telegram-каналов | views |
+| `youtube` | `src/sources/youtube.py` | новые видео + описания + транскрипты | viewCount |
+
+Источники включаются и настраиваются в [config/sources.yaml](config/sources.yaml).
+
+## Что Потребуется
+
+### Обязательное
+
+- Python 3.11.
+- PostgreSQL 15+ или совместимая версия.
+- OpenAI API key.
+- Telegram bot token.
+- Telegram user id, которому бот будет отправлять дайджесты.
+
+### Для Дополнительных Источников
+
+| Источник | Что нужно |
 |---|---|
-| Язык | Python 3.11 (async) |
-| LLM | OpenAI API (`gpt-4o-mini` / `gpt-4o`) |
-| БД | PostgreSQL 15 + SQLAlchemy 2.x |
-| HTTP | httpx |
-| Парсинг | feedparser, BeautifulSoup4 |
-| Telegram | aiogram 3.x |
-| Планировщик | APScheduler |
-| Конфиг | YAML + pydantic-settings |
-| Логи | structlog (JSON) |
-| CLI | typer |
-| Инфра | Docker, docker-compose |
-| Тесты | pytest, pytest-asyncio |
+| Reddit | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` |
+| Product Hunt | `PRODUCTHUNT_TOKEN` |
+| VK | `VK_ACCESS_TOKEN` |
+| Telegram-каналы | `TG_API_ID`, `TG_API_HASH`, интерактивный `tg_login` |
+| YouTube | `YOUTUBE_API_KEY` |
 
----
+Если ключа нет, соответствующий источник мягко вернет пустой список и запишет ошибку в лог. Можно временно выключить источник через `enabled: false`.
 
-## 🚀 Быстрый старт
+## Переменные Окружения
 
-### 1. Клонируем и настраиваем
+Скопируйте пример:
 
 ```bash
-git clone <repo-url> trend-radar
-cd trend-radar
 cp .env.example .env
-# отредактируй .env: OPENAI_API_KEY, TELEGRAM_BOT_TOKEN, TELEGRAM_USER_ID, DATABASE_URL
 ```
 
-### 2. Инициализируем БД
+Заполните `.env`:
+
+| Переменная | Обязательна | Назначение |
+|---|---:|---|
+| `DATABASE_URL` | да | async URL для SQLAlchemy, например `postgresql+asyncpg://user:pass@host:5432/db` |
+| `OPENAI_API_KEY` | да | ключ OpenAI API |
+| `OPENAI_MODEL_SCORE` | нет | модель оценки постов, по умолчанию `gpt-4o-mini` |
+| `OPENAI_MODEL_DIGEST` | нет | модель сборки дайджеста, по умолчанию `gpt-4o` |
+| `TELEGRAM_BOT_TOKEN` | да | токен бота из BotFather |
+| `TELEGRAM_USER_ID` | да | Telegram user id получателя |
+| `TZ` | нет | таймзона scheduler, например `Europe/Moscow` |
+| `LOG_LEVEL` | нет | уровень логов |
+| `COLLECT_CRON` | нет | cron для ежедневного `collect + score` |
+| `DIGEST_CRON` | нет | cron для еженедельного `digest + deliver` |
+| `HTTP_REQUESTS_PER_DOMAIN_PER_SEC` | нет | лимит HTTP-запросов на домен |
+| `REDDIT_CLIENT_ID` | для Reddit | id Reddit app |
+| `REDDIT_CLIENT_SECRET` | для Reddit | secret Reddit app |
+| `REDDIT_USER_AGENT` | для Reddit | user-agent приложения |
+| `PRODUCTHUNT_TOKEN` | для Product Hunt | bearer token Product Hunt API |
+| `VK_ACCESS_TOKEN` | для VK | access token VK API |
+| `TG_API_ID` | для Telegram-каналов | Telegram API id |
+| `TG_API_HASH` | для Telegram-каналов | Telegram API hash |
+| `YOUTUBE_API_KEY` | для YouTube | ключ YouTube Data API |
+
+Для ручной инициализации БД удобно завести отдельную переменную `PSQL_URL` без `+asyncpg`, например:
 
 ```bash
-psql $DATABASE_URL -f src/db/init.sql
+export PSQL_URL=postgresql://user:pass@host:5432/trend_radar
 ```
 
-### 3. Запускаем
+## Настройка Базы Данных
+
+Проект не поднимает PostgreSQL в `docker-compose.yml`; ожидается внешняя или уже существующая БД.
+
+1. Создайте базу.
+2. Примените DDL:
 
 ```bash
-docker compose up -d
-docker compose logs -f app
+psql "$PSQL_URL" -f src/db/init.sql
 ```
 
-### 4. Тестируем вручную
+Если вы используете `DATABASE_URL` из `.env`, помните: для `psql` нужен обычный URL без драйвера `+asyncpg`.
 
-```bash
-# Собрать посты
-docker compose run --rm app python -m src.main collect
+## Настройка Источников
 
-# Оценить через LLM
-docker compose run --rm app python -m src.main score
-
-# Сформировать дайджест за 7 дней
-docker compose run --rm app python -m src.main digest --days 7
-```
-
-В Telegram: отправьте боту `/digest` — придёт свежий дайджест.
-
----
-
-## ⚙️ Конфигурация
-
-### Переменные окружения (`.env`)
-
-```env
-DATABASE_URL=postgresql+asyncpg://user:pass@host:6432/trend_radar
-OPENAI_API_KEY=sk-...
-TELEGRAM_BOT_TOKEN=...
-TELEGRAM_USER_ID=123456789
-
-COLLECT_CRON=0 7 * * *      # ежедневный сбор в 07:00
-DIGEST_CRON=0 10 * * 1      # дайджест по понедельникам в 10:00
-```
-
-Полный пример — в [`.env.example`](./.env.example).
-
-### Источники (`config/sources.yaml`)
+Источники описываются в YAML:
 
 ```yaml
 sources:
-  - name: habr_ml
-    type: habr
+  - name: reddit_saas
+    type: reddit
     enabled: true
+    filters:
+      min_engagement: 20
     params:
-      hub: machine-learning
-      min_rating: 10
-
-  - name: habr_python
-    type: habr
-    enabled: true
-    params:
-      hub: python
-      min_rating: 5
+      subreddits: [ SaaS ]
+      listing: top
+      time_filter: week
+      limit: 50
 ```
 
-Добавить новый источник = новая секция + новый класс в `src/sources/`.
+### Общие Поля
 
-### Промпты (`config/prompts/`)
+| Поле | Назначение |
+|---|---|
+| `name` | уникальное имя источника в БД |
+| `type` | тип коннектора: `habr`, `reddit`, `youtube` и т.д. |
+| `enabled` | включает или выключает источник |
+| `filters` | общие фильтры ядра |
+| `params` | параметры конкретного источника |
 
-- `user_profile.md` — кто вы, что вам интересно
-- `score_post.md` — как оценивать отдельный пост
-- `build_digest.md` — как собирать финальный дайджест
+### Общие Фильтры
 
-Промпты под git, правятся без релиза.
+```yaml
+filters:
+  min_rating: 5
+  min_engagement: 20
+```
 
----
+Если у поста нет `rating`, фильтр `min_rating` для него пропускается. Если нет `engagement`, фильтр `min_engagement` тоже пропускается. Фильтрация живет в `src/pipeline/collect.py`, а не в коннекторах.
 
-## 🤖 Команды Telegram-бота
+### Примеры Параметров Источников
+
+```yaml
+# Habr
+params:
+  hub: python
+
+# RSS
+params:
+  url: https://hnrss.org/newest?points=100
+
+# Reddit
+params:
+  subreddits: [ SaaS, startups ]
+  listing: top
+  time_filter: week
+  limit: 50
+
+# Product Hunt
+params:
+  topic: developer-tools
+  limit: 30
+
+# VK
+params:
+  groups: [ tproger, proglib, habr ]
+  limit: 50
+
+# Telegram
+params:
+  channels: [ startupsi, addmeto ]
+  limit: 50
+
+# YouTube
+params:
+  channel_ids:
+    - UCcefcZRL2oaA_uBNeo5UOWg
+  limit: 20
+```
+
+## Настройка Промптов
+
+Промпты лежат в `config/prompts/`:
+
+- `user_profile.md` - ваш профиль интересов. Это главный файл для настройки вкуса дайджеста.
+- `score_post.md` - правила оценки отдельного поста.
+- `build_digest.md` - правила сборки итогового дайджеста.
+
+Обычно сначала правят `user_profile.md`: какие темы интересны, какие посты считать шумом, какие идеи особенно ценны.
+
+## Установка И Запуск Локально
+
+```bash
+python3.11 -m venv .venv
+.venv/bin/pip install -r requirements.txt
+cp .env.example .env
+```
+
+Заполните `.env`, примените схему БД, затем запускайте команды:
+
+```bash
+.venv/bin/python -m src.main collect
+.venv/bin/python -m src.main score --limit 50
+.venv/bin/python -m src.main digest --days 7 --min-relevance 6 --manual
+.venv/bin/python -m src.main deliver --digest-id 1
+```
+
+Для автономного режима:
+
+```bash
+.venv/bin/python -m src.main run
+```
+
+Локальный запуск Telegram-источника использует путь `/data/telethon.session`. Если вы запускаете не через Docker, убедитесь, что каталог `/data` существует и доступен на запись, либо используйте Docker-режим ниже.
+
+## Запуск Через Docker Compose
+
+Сборка и запуск сервиса:
+
+```bash
+docker compose up -d --build
+docker compose logs -f app
+```
+
+Контейнер запускает:
+
+```bash
+python -m src.main run
+```
+
+То есть одновременно стартуют Telegram-бот и scheduler.
+
+Ручные команды внутри контейнера:
+
+```bash
+docker compose run --rm app python -m src.main collect
+docker compose run --rm app python -m src.main score --limit 50
+docker compose run --rm app python -m src.main digest --days 7 --manual
+docker compose run --rm app python -m src.main deliver --digest-id 1
+```
+
+Для Telethon-сессии в `docker-compose.yml` подключен volume `trend-radar-data:/data`.
+
+## Авторизация Telegram-Каналов
+
+Для чтения Telegram-каналов Telethon должен один раз создать пользовательскую сессию.
+
+1. Заполните:
+
+```env
+TG_API_ID=...
+TG_API_HASH=...
+```
+
+2. Запустите интерактивный логин:
+
+```bash
+docker compose run --rm app python -m src.main tg_login
+```
+
+Telethon попросит телефон, код и, если включена двухфакторная защита, пароль. После успешного входа файл сессии сохранится в Docker volume `/data/telethon.session`.
+
+После этого источник `type: telegram` сможет читать каналы, к которым у аккаунта есть доступ.
+
+## CLI Команды
 
 | Команда | Что делает |
 |---|---|
-| `/digest` | Дайджест за последние 7 дней |
-| `/digest_today` | Только новые посты, ещё не отправленные |
-| `/status` | Статистика: собрано / оценено / последний запуск |
-| `/help` | Список команд |
+| `python -m src.main run` | запускает bot + scheduler |
+| `python -m src.main collect` | собирает посты из активных источников |
+| `python -m src.main score --limit 50` | оценивает неоцененные посты |
+| `python -m src.main digest --days 7 --min-relevance 6 --manual` | создает дайджест в БД |
+| `python -m src.main deliver --digest-id 1` | отправляет существующий дайджест в Telegram |
+| `python -m src.main bot` | запускает только Telegram-бота |
+| `python -m src.main tg_login` | создает Telethon-сессию для чтения каналов |
 
-Доступ ограничен `TELEGRAM_USER_ID` из `.env`.
+## Telegram-Бот
 
----
+Бот доступен только пользователю с id `TELEGRAM_USER_ID`.
 
-## 📁 Структура проекта
+Команды:
 
+| Команда | Что делает |
+|---|---|
+| `/start` | показывает основную клавиатуру |
+| `/help` | показывает справку |
+| `/status` | показывает статистику базы |
+| `/digest` | собирает и отправляет дайджест за 7 дней |
+| `/digest_today` | собирает и отправляет дайджест за сутки |
+| `/run_collect` | вручную запускает `collect + score` |
+
+## Scheduler
+
+Scheduler создается в `src/scheduler.py` и использует cron-выражения из `.env`:
+
+```env
+COLLECT_CRON=0 7 * * *
+DIGEST_CRON=0 10 * * 1
+TZ=Europe/Moscow
 ```
-trend-radar/
-├── ARCHITECTURE.md          # 📐 источник правды по архитектуре
-├── README.md
-├── config/
-│   ├── sources.yaml         # источники
-│   └── prompts/             # LLM-промпты
-├── src/
-│   ├── main.py              # entrypoint + CLI
-│   ├── settings.py
-│   ├── db/                  # модели, репозиторий, init.sql
-│   ├── schemas/             # pydantic-контракты
-│   ├── sources/             # коннекторы (habr, reddit, ...)
-│   ├── llm/                 # OpenAI client, scorer, digest_builder
-│   ├── pipeline/            # collect → score → digest → deliver
-│   ├── bot/                 # aiogram
-│   ├── scheduler.py         # APScheduler
-│   └── utils/
-└── tests/
-```
 
----
+По умолчанию:
 
-## 🗺 Дорожная карта
+- каждый день в 07:00: `collect -> score`;
+- каждый понедельник в 10:00: `digest -> deliver`.
 
-### MVP (этапы 1–6)
-- [x] Этап 1. Скелет проекта + БД
-- [ ] Этап 2. Источник Habr + `pipeline.collect`
-- [ ] Этап 3. LLM-оценка постов
-- [ ] Этап 4. Сборка дайджеста
-- [ ] Этап 5. Telegram-бот + доставка
-- [ ] Этап 6. Scheduler + автономный режим
+## Данные В PostgreSQL
 
-### Расширение источников
-- [ ] Reddit (async-praw)
-- [ ] VK (vk_api)
-- [ ] Telegram-каналы (Telethon)
-- [ ] YouTube (youtube-data-api + транскрипты)
+Основные таблицы:
 
-### Улучшения
-- [ ] Дедупликация через эмбеддинги
-- [ ] Тренд-аналитика и графики
-- [ ] Веб-UI
-- [ ] Broadcast в Telegram-канал
-- [ ] Кэш LLM-ответов
+| Таблица | Назначение |
+|---|---|
+| `sources` | справочник источников |
+| `posts` | собранные сырые посты |
+| `post_scores` | LLM-оценки |
+| `digests` | сохраненные дайджесты |
+| `digest_posts` | связь дайджеста и постов |
+| `delivery_log` | история отправленных постов |
 
-Подробности — в `ARCHITECTURE.md`, раздел 12.
+Дубли предотвращаются ограничением `UNIQUE(source_id, external_id)`.
 
----
+## Разработка
 
-## 🧩 Как добавить свой источник
-
-1. Создайте `src/sources/myservice.py` с классом, наследующим `BaseSource`:
-   ```python
-   class MyServiceSource(BaseSource):
-       type = "myservice"
-       async def fetch(self, since: datetime) -> list[RawPost]:
-           ...
-   ```
-2. Зарегистрируйте в `src/sources/registry.py`.
-3. Добавьте секцию в `config/sources.yaml`.
-4. Запустите `collect` — посты появятся в БД.
-
-**Ядро трогать не нужно.**
-
----
-
-## 🧪 Тесты
+Установка:
 
 ```bash
-docker compose run --rm app pytest
+.venv/bin/pip install -r requirements.txt
 ```
 
----
+Тесты:
 
-## 📄 Лицензия
+```bash
+.venv/bin/pytest
+```
 
-MIT
+Проверить только источники:
 
----
+```bash
+.venv/bin/pytest tests/test_sources_*.py
+```
 
-## 🙋 Контрибьютинг
+Тесты источников не ходят в реальную сеть: внешние API замоканы.
 
-Перед началом работы — прочитайте [`ARCHITECTURE.md`](./ARCHITECTURE.md). Это единый источник правды о структуре, контрактах и этапах. Не меняйте контракты между этапами без явного согласования.
+## Как Добавить Новый Источник
+
+1. Создайте файл `src/sources/my_source.py`.
+2. Реализуйте класс от `BaseSource`.
+3. Верните список `RawPost` из метода `fetch(self, since)`.
+4. Зарегистрируйте тип в `src/sources/registry.py`.
+5. Добавьте секцию в `config/sources.yaml`.
+6. Добавьте тест в `tests/test_sources_my_source.py`.
+
+Минимальный скелет:
+
+```python
+from datetime import datetime
+from typing import Any
+
+from src.schemas.post import RawPost
+from src.sources.base import BaseSource
+
+
+class MySource(BaseSource):
+    type = "my_source"
+
+    def __init__(self, name: str, params: dict[str, Any]) -> None:
+        self.name = name
+        self.params = params
+
+    async def fetch(self, since: datetime) -> list[RawPost]:
+        return []
+```
+
+Ядро пайплайна менять обычно не нужно.
+
+## Практический Сценарий Первого Запуска
+
+1. Заполнить `.env`.
+2. Отключить источники, для которых пока нет ключей: `enabled: false`.
+3. Применить `src/db/init.sql`.
+4. Запустить `collect`.
+5. Проверить, что в логах есть `collect.done`.
+6. Запустить `score --limit 10`.
+7. Запустить `digest --days 7 --manual`.
+8. Отправить дайджест через `deliver --digest-id <id>`.
+9. Если все хорошо, запустить `docker compose up -d --build`.
+
+## Частые Проблемы
+
+### `psql` не принимает `DATABASE_URL`
+
+`DATABASE_URL` содержит драйвер `postgresql+asyncpg://`, который нужен приложению. Для `psql` используйте URL вида `postgresql://...`.
+
+### Telegram-каналы возвращают пусто
+
+Проверьте, что выполнен `tg_login`, сессия сохранена в `/data/telethon.session`, аккаунт имеет доступ к каналам, а `TG_API_ID` и `TG_API_HASH` заполнены.
+
+### Reddit, VK, Product Hunt или YouTube возвращают пусто
+
+Проверьте ключи в `.env` и включенность источника в `config/sources.yaml`. Источник без ключа не падает, а возвращает пустой список.
+
+### CLI `--help` падает из-за Click/Typer
+
+В `requirements.txt` закреплен `click<8.2`, потому что текущий `typer==0.13.1` несовместим с более свежими версиями Click для rich-help.
+
+### Дайджест не создается
+
+Возможные причины:
+
+- нет собранных постов за период;
+- посты еще не оценены;
+- `min_relevance` слишком высокий;
+- посты уже были доставлены и исключаются через `exclude_delivered=True`.
+
+## Безопасность
+
+- Не коммитьте `.env`.
+- Используйте отдельные API tokens для проекта.
+- Telegram-бот ограничивает доступ по `TELEGRAM_USER_ID`.
+- Для Telethon используется пользовательская сессия; храните volume `/data` как секретный артефакт.
+
+## Текущий Статус
+
+Реализированы этапы 1-9:
+
+- расширенная схема под идеи;
+- общие фильтры;
+- throttling;
+- RSS;
+- Reddit;
+- Product Hunt;
+- VK;
+- Telegram-каналы;
+- YouTube.
+
+Следующий крупный блок из архитектуры - улучшения уровня 10+: дедупликация похожих постов между источниками, эмбеддинги и более умная сборка дайджеста.

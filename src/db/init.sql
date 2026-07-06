@@ -19,6 +19,7 @@ CREATE TABLE IF NOT EXISTS posts (
     title         TEXT        NOT NULL,
     author        VARCHAR(256),
     content       TEXT        NOT NULL DEFAULT '',
+    engagement INTEGER,
     published_at  TIMESTAMPTZ NOT NULL,
     rating        INTEGER,
     raw_json      JSONB       NOT NULL DEFAULT '{}'::jsonb,
@@ -38,7 +39,9 @@ CREATE TABLE IF NOT EXISTS post_scores (
     topics          JSONB       NOT NULL DEFAULT '[]'::jsonb,
     scored_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     model           VARCHAR(64) NOT NULL,
-    tokens_used     INTEGER     NOT NULL DEFAULT 0
+    tokens_used     INTEGER     NOT NULL DEFAULT 0,
+    problem TEXT,
+    pportunity TEXT
 );
 
 CREATE INDEX IF NOT EXISTS ix_post_scores_post_id   ON post_scores(post_id);
@@ -70,3 +73,7 @@ CREATE TABLE IF NOT EXISTS delivery_log (
 );
 
 CREATE INDEX IF NOT EXISTS ix_delivery_log_post_id ON delivery_log(post_id);
+
+ALTER TABLE posts ADD COLUMN IF NOT EXISTS engagement INTEGER;
+ALTER TABLE post_scores ADD COLUMN IF NOT EXISTS problem TEXT;
+ALTER TABLE post_scores ADD COLUMN IF NOT EXISTS opportunity TEXT;

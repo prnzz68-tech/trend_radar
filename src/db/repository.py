@@ -1,3 +1,5 @@
+# src/db/repository.py
+
 from datetime import datetime, timezone
 from typing import Any
 
@@ -60,13 +62,13 @@ async def upsert_posts(
                 "content": p.content,
                 "published_at": published,
                 "rating": p.rating,
+                "engagement": p.engagement,   # Этап 1
                 "raw_json": p.raw,
             }
         )
 
     stmt = pg_insert(Post).values(rows)
     stmt = stmt.on_conflict_do_nothing(index_elements=["source_id", "external_id"])
-    # rowcount по INSERT ... ON CONFLICT DO NOTHING вернёт число фактически вставленных
     result = await session.execute(stmt)
     await session.commit()
     return result.rowcount or 0
@@ -87,7 +89,10 @@ async def get_unscored_posts(
 ) -> list[PostForScoring]:
     """Посты без любой записи в post_scores. MVP: без учёта модели."""
     stmt = (
-        select(Post.id, Post.title, Post.content, Post.author, Source.name)
+        select(
+            Post.id, Post.title, Post.content, Post.author,
+            Source.name, Post.engagement,   # Этап 1
+        )
         .join(Source, Source.id == Post.source_id)
         .outerjoin(PostScore, PostScore.post_id == Post.id)
         .where(PostScore.id.is_(None))
@@ -102,6 +107,7 @@ async def get_unscored_posts(
             content=row[2] or "",
             author=row[3],
             source_name=row[4],
+            engagement=row[5],
         )
         for row in rows
     ]
@@ -119,6 +125,8 @@ async def save_score(
         relevance_score=score.relevance_score,
         category=score.category,
         summary=score.summary,
+        problem=score.problem,            # Этап 1
+        opportunity=score.opportunity,    # Этап 1
         topics=score.topics,
         model=model,
         tokens_used=tokens,
@@ -165,6 +173,9 @@ async def get_posts_for_digest(
                 topics=list(score.topics or []),
                 relevance_score=score.relevance_score,
                 rating=post.rating,
+                engagement=post.engagement,         # Этап 1
+                problem=score.problem,              # Этап 1
+                opportunity=score.opportunity,      # Этап 1
                 source_name=source_name,
                 published_at=post.published_at,
             )

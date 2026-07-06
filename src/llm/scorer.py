@@ -48,6 +48,7 @@ async def score_post(post: PostForScoring) -> tuple[PostScore, int]:
         source_name=post.source_name,
         title=post.title,
         author=post.author or "—",
+        engagement=post.engagement if post.engagement is not None else "—",  # Этап 1
         content=content,
     )
 

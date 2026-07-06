@@ -49,6 +49,7 @@ class Post(Base):
         DateTime(timezone=True), nullable=False, index=True
     )
     rating: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    engagement: Mapped[int | None] = mapped_column(Integer, nullable=True)  # Этап 1
     raw_json: Mapped[dict[str, Any]] = mapped_column(JSONB, default=dict, nullable=False)
     collected_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -70,13 +71,14 @@ class PostScore(Base):
     relevance_score: Mapped[int] = mapped_column(Integer, nullable=False)
     category: Mapped[str] = mapped_column(String(32), nullable=False)
     summary: Mapped[str] = mapped_column(Text, nullable=False)
+    problem: Mapped[str | None] = mapped_column(Text, nullable=True)        # Этап 1
+    opportunity: Mapped[str | None] = mapped_column(Text, nullable=True)    # Этап 1
     topics: Mapped[list[str]] = mapped_column(JSONB, default=list, nullable=False)
     scored_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False, index=True
     )
     model: Mapped[str] = mapped_column(String(64), nullable=False)
     tokens_used: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
-
 
 class Digest(Base):
     __tablename__ = "digests"

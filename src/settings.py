@@ -1,3 +1,6 @@
+
+# src/settings.py
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -29,6 +32,27 @@ class Settings(BaseSettings):
     # Schedule
     COLLECT_CRON: str = "0 7 * * *"
     DIGEST_CRON: str = "0 10 * * 1"
+
+    # HTTP throttling
+    HTTP_REQUESTS_PER_DOMAIN_PER_SEC: float = 1.0
+
+    # Reddit (Этап 5)
+    REDDIT_CLIENT_ID: str = ""
+    REDDIT_CLIENT_SECRET: str = ""
+    REDDIT_USER_AGENT: str = "trend-radar/0.1 by trend-radar"
+
+    # Product Hunt (Этап 6)
+    PRODUCTHUNT_TOKEN: str = ""
+
+    # VK (Этап 7)
+    VK_ACCESS_TOKEN: str = ""
+
+    # Telegram channels (Этап 8)
+    TG_API_ID: int = 0
+    TG_API_HASH: str = ""
+
+    # YouTube (Этап 9)
+    YOUTUBE_API_KEY: str = ""
 
 
 settings = Settings()  # type: ignore[call-arg]

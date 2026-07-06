@@ -1,3 +1,5 @@
+# schemas/post.py
+
 from datetime import datetime
 
 from pydantic import BaseModel, HttpUrl
@@ -12,6 +14,7 @@ class RawPost(BaseModel):
     content: str = ""
     published_at: datetime
     rating: int | None = None
+    engagement: int | None = None   # Этап 1: универсальная вовлечённость
     raw: dict = {}
 
 
@@ -21,3 +24,4 @@ class PostForScoring(BaseModel):
     content: str
     author: str | None
     source_name: str
+    engagement: int | None = None   # Этап 1: прокидываем в промпт скоринга
