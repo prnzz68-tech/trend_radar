@@ -36,10 +36,16 @@ function recommendation(top, demo) {
   const viewTitle=esc(viewLeader.title.length>100?viewLeader.title.slice(0,97)+'…':viewLeader.title);
   const engageTitle=esc(engageLeader.title.length>100?engageLeader.title.slice(0,97)+'…':engageLeader.title);
   const erComparison=rate(viewLeader)<rateMedian?'ниже':'выше';
+  const scaleText=/егэ/i.test(viewLeader.title)
+    ? 'Покажите типичную ошибку в задании ЕГЭ и её решение за первые секунды. Затем дайте короткий фрагмент занятия и пригласите на диагностику знаний или пробный урок курса.'
+    : 'Используйте механику заголовка лидера: конкретный результат занятия + доступность курса в записи. В первые секунды покажите результат, затем один фрагмент урока и приглашение записаться. Тему адаптируйте к своему курсу.';
+  const responseText=/егэ/i.test(engageLeader.title)
+    ? 'Проверьте подачу через вопрос ученика по заданию ЕГЭ и разбор преподавателя в кадре. В конце предложите полный план подготовки на курсе.'
+    : 'Проверьте подачу через типичный вопрос ученика и короткий ответ преподавателя в кадре.';
   return `<div class="rec-lead">Лидер по просмотрам: «${viewTitle}». У него ${num(viewLeader.views)} просмотров за ${Math.round(age)} ч — ${multiple} больше медианы подборки.</div>
     <div class="rec-evidence"><span>ВОВЛЕЧЁННОСТЬ ЛИДЕРА <b>${percent(rate(viewLeader))}</b></span><span>МЕДИАНА ${cohort.length} ВИДЕО <b>${percent(rateMedian)}</b></span><span>ЛУЧШИЙ ОТКЛИК В ТОП-3 <b>${percent(rate(engageLeader))}</b></span></div>
     <p class="rec-interpret">Отклик лидера ${erComparison} медианы. Поэтому высокий объём просмотров стоит проверить на качество интереса к курсу.</p>
-    <div class="rec-list"><div><strong>ВАРИАНТ А · МАСШТАБ</strong><p>Используйте механику заголовка лидера: конкретный результат занятия + доступность курса в записи. В первые секунды покажите результат, затем один фрагмент урока и приглашение записаться. Тему адаптируйте к своему курсу.</p></div><div><strong>ВАРИАНТ Б · ОТКЛИК</strong><p>В ролике «${engageTitle}» вовлечённость ${percent(rate(engageLeader))}. Проверьте подачу через типичный вопрос ученика и короткий ответ преподавателя в кадре.</p></div></div>
+    <div class="rec-list"><div><strong>ВАРИАНТ А · МАСШТАБ</strong><p>${scaleText}</p></div><div><strong>ВАРИАНТ Б · ОТКЛИК</strong><p>В ролике «${engageTitle}» вовлечённость ${percent(rate(engageLeader))}. ${responseText}</p></div></div>
     <p class="rec-test"><strong>Проверка:</strong> запустите оба варианта на одной аудитории и с равным бюджетом на 3 дня. Сравните удержание первых секунд, переходы и стоимость заявки. Победителя выбирайте по заявкам, а не по просмотрам.</p>
     <p class="rec-caveat">Сейчас источники для этого вывода: ${esc([...new Set(cohort.map(x=>x.platform))].join(', '))}. Гипотеза основана на названиях и публичных метриках видео. Содержание роликов и рекламные конверсии сервис пока не анализирует.</p>`;
 }
@@ -53,11 +59,13 @@ function render() {
   $('#last-sync').textContent=data.lastUpdated?new Date(data.lastUpdated).toLocaleDateString('ru-RU',{day:'numeric',month:'short',hour:'2-digit',minute:'2-digit'}):'Нет данных';
   $('#sync-note').textContent=data.demo?'Демонстрационные записи':data.lastSync?'Данные YouTube API и ручной ввод':'Добавлено вручную';
   $('#cards').innerHTML=top.length?top.map(card).join(''):'<p>Видео пока нет. Добавьте первое в базу сигналов.</p>';
+  $('#global-cards').innerHTML=data.globalTop?.length?data.globalTop.map(card).join(''):'<p>Глобальных видео пока нет. Обновите данные YouTube или добавьте публичный ролик вручную.</p>';
+  $('#global-status').textContent=data.globalSyncError?`Ошибка глобального поиска: ${data.globalSyncError}`:`Короткие YouTube видео со всего мира без тематического запроса за 7 дней; ручные TikTok, Instagram и Threads тоже участвуют, если добавлены за этот период. Найдено: ${data.globalCount || 0}.`;
   $('#recommendation').innerHTML=recommendation(top,data.demo);
   $('#settings-form').elements.query.value=data.settings.query;
   $('#settings-form').elements.region.value=data.settings.region;
-  const youtubeStatus=data.hasYouTubeKey?'YouTube API подключён. Автоматическая проверка выполняется раз в 24 часа, пока локальный сервер работает.':'YouTube API пока не подключён. Для автоматического сбора задайте YOUTUBE_API_KEY перед запуском сервера.';
-  const telegramStatus=!data.telegramConfigured?'Telegram-бот не настроен. Инструкция есть в dashboard/README.md.':data.telegramLinked?`Telegram-бот настроен для ежедневной отправки по Москве, пока сервер работает. Проверьте его командой /digest.${data.telegramLastSentDate?` Последняя отправка: ${data.telegramLastSentDate}.`:''}`:'Telegram-бот ожидает Chat ID: отправьте ему /start, добавьте TELEGRAM_CHAT_ID в .env и перезапустите сервис.';
+  const youtubeStatus=data.hasYouTubeKey?'YouTube API подключён. Тематическая и глобальная выдачи обновляются раз в 24 часа, пока локальный сервер работает.':'YouTube API пока не подключён. Для автоматического сбора задайте YOUTUBE_API_KEY перед запуском сервера.';
+  const telegramStatus=!data.telegramConfigured?'Telegram-бот не настроен. Инструкция есть в dashboard/README.md.':data.telegramLinked?`Telegram-бот настроен: /digest — темы, /global — глобальные видео по просмотрам. Ежедневно отправляется тематическая подборка.${data.telegramLastSentDate?` Последняя отправка: ${data.telegramLastSentDate}.`:''}`:'Telegram-бот ожидает Chat ID: отправьте ему /start, добавьте TELEGRAM_CHAT_ID в .env и перезапустите сервис.';
   $('#connection').textContent=`${youtubeStatus}\n${telegramStatus}`;
   if(data.demo) notice('Демо-режим: карточки и цифры ниже служат примером и не ведут на реальные видео. Добавьте видео об онлайн-обучении или подключите YouTube API.');
   if(data.syncError) notice(`Ошибка обновления YouTube: ${data.syncError}`,'error');
@@ -71,7 +79,7 @@ function render() {
 async function load() { data=await api('/api/state'); render(); }
 $('#refresh').addEventListener('click',async()=>{
   const btn=$('#refresh'); btn.disabled=true;
-  try { if(!data.hasYouTubeKey){notice('Добавьте ключ YouTube API, чтобы обновлять видео автоматически. Пока можно добавлять их вручную.');return;} const result=await api('/api/sync',{method:'POST'}); await load();notice(`YouTube обновлён: получено ${result.added} видео.`); }
+  try { if(!data.hasYouTubeKey){notice('Добавьте ключ YouTube API, чтобы обновлять видео автоматически. Пока можно добавлять их вручную.');return;} const result=await api('/api/sync',{method:'POST'}); await load();notice(`YouTube обновлён: ${result.added} видео по темам, ${result.globalAdded} глобальных.${result.warning?` ${result.warning}`:''}`,result.warning?'error':'info'); }
   catch(e){notice(e.message,'error')}finally{btn.disabled=false}
 });
 document.querySelectorAll('.chip').forEach(btn=>btn.addEventListener('click',()=>{filter=btn.dataset.platform;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('selected',x===btn));render()}));

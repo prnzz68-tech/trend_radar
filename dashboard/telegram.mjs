@@ -24,12 +24,28 @@ export function digestText(snapshot) {
   const midpoint = Math.floor(views.length / 2);
   const medianViews = views.length % 2 ? views[midpoint] : (views[midpoint - 1] + views[midpoint]) / 2;
   const comparison = medianViews ? `${(leader.views / medianViews).toFixed(1).replace('.', ',')} раза от медианы ${cohort.length} видео` : `медиана ${cohort.length} видео равна нулю`;
+  const firstVariant = /егэ/i.test(leader.title)
+    ? `Проверьте тему «${leader.title.slice(0, 90)}»: покажите ошибку в задании ЕГЭ, её решение и предложите диагностику знаний или пробный урок курса.`
+    : `Проверьте тему «${leader.title.slice(0, 90)}»: покажите результат ученика в первые секунды, затем фрагмент урока и приглашение на курс.`;
+  const secondVariant = /егэ/i.test(engaged.title)
+    ? `Второй вариант — ответ преподавателя на вопрос по заданию из ролика «${engaged.title.slice(0, 90)}» и приглашение на курс подготовки.`
+    : `Второй вариант — короткий ответ преподавателя на вопрос по теме «${engaged.title.slice(0, 90)}».`;
   lines.push('', 'Гипотеза для рекламы:',
     `Лидер по просмотрам набрал ${number.format(leader.views)}; ${comparison}. Лучший отклик в топ-3 у «${engaged.title.slice(0, 70)}».`,
-    `Проверьте тему «${leader.title.slice(0, 90)}»: покажите результат ученика в первые секунды, затем фрагмент урока и приглашение на курс.`,
-    `Второй вариант — короткий ответ преподавателя на вопрос по теме «${engaged.title.slice(0, 90)}».`,
+    firstVariant, secondVariant,
     'Покажите оба варианта одной аудитории с равным бюджетом 3 дня. Сравните заявки и их стоимость.');
   return lines.join('\n').slice(0, 4000);
+}
+
+export function globalText(snapshot) {
+  const top = snapshot.globalTop || [];
+  if (!top.length) return 'Глобальных видео пока нет. Обновите данные в панели.';
+  return [
+    'Глобальные тренды · топ-3 по просмотрам',
+    'Короткие YouTube видео за 7 дней без тематического фильтра; ручные сигналы других платформ учитываются, если добавлены.',
+    ...top.flatMap((item, index) => ['', `${index+1}. ${item.platform} · ${item.title.slice(0,120)}`, `${number.format(item.views)} просмотров`, item.url]),
+    '', 'Это рейтинг по просмотрам, а не рекомендация запускать рекламу по любой из этих тем.'
+  ].join('\n').slice(0,4000);
 }
 
 export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSentDate, markSentDate, reportError }) {
@@ -80,11 +96,12 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
             continue;
           }
           if (incomingChat !== expectedChat) continue;
-          if (command === '/start' || command === '/help') await send(incomingChat, 'Тренд радар подключён. /digest — подборка сейчас, /status — состояние источников. Ежедневная отправка выполняется, пока сервер запущен.');
+          if (command === '/start' || command === '/help') await send(incomingChat, 'Тренд радар подключён. /digest — онлайн-обучение и ЕГЭ, /global — общие тренды по просмотрам, /status — состояние источников. Ежедневная отправка тематической подборки выполняется, пока сервер запущен.');
           if (command === '/digest') await sendDigest(incomingChat);
+          if (command === '/global') await send(incomingChat, globalText(getSnapshot()));
           if (command === '/status') {
             const snapshot = getSnapshot();
-            await send(incomingChat, `Видео в базе: ${snapshot.demo ? 0 : snapshot.count}\nYouTube: ${snapshot.hasYouTubeKey ? 'подключён' : 'нет ключа'}\nПоследнее обновление: ${snapshot.lastSync || 'ещё не было'}`);
+            await send(incomingChat, `Видео по темам: ${snapshot.demo ? 0 : snapshot.count}\nГлобальные сигналы: ${snapshot.globalCount}\nYouTube: ${snapshot.hasYouTubeKey ? 'подключён' : 'нет ключа'}\nТемы обновлены: ${snapshot.lastSync || 'ещё не было'}\nГлобально обновлено: ${snapshot.globalLastSync || 'ещё не было'}`);
           }
         }
       } catch (error) {
