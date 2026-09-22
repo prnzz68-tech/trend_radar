@@ -1,0 +1,4 @@
+Options -Indexes
+DirectoryIndex index.html
+RewriteEngine On
+RewriteRule ^api/(state|auth|login|logout|import|settings|sync|webhook)$ api.php?route=$1 [QSA,L]
