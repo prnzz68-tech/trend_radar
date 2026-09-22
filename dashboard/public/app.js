@@ -57,7 +57,7 @@ function render() {
   $('#settings-form').elements.query.value=data.settings.query;
   $('#settings-form').elements.region.value=data.settings.region;
   const youtubeStatus=data.hasYouTubeKey?'YouTube API подключён. Автоматическая проверка выполняется раз в 24 часа, пока локальный сервер работает.':'YouTube API пока не подключён. Для автоматического сбора задайте YOUTUBE_API_KEY перед запуском сервера.';
-  const telegramStatus=!data.telegramConfigured?'Telegram-бот не подключён. Инструкция есть в dashboard/README.md.':data.telegramLinked?`Telegram-бот подключён. Ежедневная подборка отправляется после 09:00 по Москве, пока сервер работает.${data.telegramLastSentDate?` Последняя отправка: ${data.telegramLastSentDate}.`:''}`:'Telegram-бот ожидает Chat ID: отправьте ему /start, добавьте TELEGRAM_CHAT_ID в .env и перезапустите сервис.';
+  const telegramStatus=!data.telegramConfigured?'Telegram-бот не настроен. Инструкция есть в dashboard/README.md.':data.telegramLinked?`Telegram-бот настроен для ежедневной отправки по Москве, пока сервер работает. Проверьте его командой /digest.${data.telegramLastSentDate?` Последняя отправка: ${data.telegramLastSentDate}.`:''}`:'Telegram-бот ожидает Chat ID: отправьте ему /start, добавьте TELEGRAM_CHAT_ID в .env и перезапустите сервис.';
   $('#connection').textContent=`${youtubeStatus}\n${telegramStatus}`;
   if(data.demo) notice('Демо-режим: карточки и цифры ниже служат примером и не ведут на реальные видео. Добавьте видео об онлайн-обучении или подключите YouTube API.');
   if(data.syncError) notice(`Ошибка обновления YouTube: ${data.syncError}`,'error');
