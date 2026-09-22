@@ -110,7 +110,7 @@ function youtubeRequest(url) {
       }
       if (!(throttled || [500, 502, 503, 504].includes(response.status)) || attempt === 2) throw Error(result.error?.message || `YouTube API: HTTP ${response.status}`);
       const retryAfter = Number(response.headers.get('retry-after'));
-      await pause(Number.isFinite(retryAfter) && retryAfter > 0 ? Math.min(retryAfter * 1000, 60000) : Math.min(30000, 2000 * 2 ** attempt) + Math.random() * 500);
+      await pause(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : Math.min(30000, 2000 * 2 ** attempt) + Math.random() * 500);
     }
   };
   const queued = youtubeQueue.then(run, run);
