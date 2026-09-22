@@ -21,9 +21,18 @@ const sample = [
   { id: 'demo-2', platform: 'Instagram', title: 'До / после: прогресс ученика за месяц', creator: '@school.example', url: '', topic: 'Онлайн-обучение', format: 'История результата', views: 842000, likes: 57400, comments: 1670, shares: 10800, reach: null, publishedAt: new Date(Date.now()-31*3600000).toISOString(), collectedAt: new Date().toISOString(), source: 'demo' },
   { id: 'demo-3', platform: 'YouTube', title: 'Три ошибки при изучении языка онлайн', creator: 'Learning Example', url: '', topic: 'Онлайн-обучение', format: 'Разбор ошибок', views: 635000, likes: 38100, comments: 1290, shares: null, reach: null, publishedAt: new Date(Date.now()-39*3600000).toISOString(), collectedAt: new Date().toISOString(), source: 'demo' }
 ];
-let state = { settings: { region: 'RU', query: defaultQuery }, items: [], globalItems: [], lastSync: null, globalLastSync: null, lastManualSyncAt: null, youtubeBlockedUntil: null, lastUpdated: null, syncError: null, globalSyncError: null, telegramLastSentDate: null };
+let state = { settings: { region: 'RU', query: defaultQuery }, items: [], globalItems: [], lastSync: null, globalLastSync: null, lastManualSyncAt: null, youtubeBlockedUntil: null, lastUpdated: null, syncError: null, globalSyncError: null, telegramLastSentDate: null, telegramSubscribers: [], telegramLastSentByChat: {}, telegramLegacyMigrated: false };
 try { state = { ...state, ...JSON.parse(await readFile(dataFile, 'utf8')) }; } catch {}
 state.globalItems ||= [];
+state.telegramSubscribers ||= [];
+state.telegramLastSentByChat ||= {};
+const legacyChat = String(process.env.TELEGRAM_CHAT_ID || '').trim();
+if (!state.telegramLegacyMigrated) {
+  if (legacyChat && !state.telegramSubscribers.includes(legacyChat)) state.telegramSubscribers.push(legacyChat);
+  if (legacyChat && state.telegramLastSentDate) state.telegramLastSentByChat[legacyChat] ||= state.telegramLastSentDate;
+  state.telegramLegacyMigrated = true;
+  await save();
+}
 if (state.settings.query === 'онлайн обучение') {
   state.settings.query = defaultQuery;
   state.lastSync = null;
@@ -64,7 +73,7 @@ function publicState() {
   const manualGlobal = state.items.filter(item => item.source === 'manual' && Date.parse(item.publishedAt) >= since);
   const global = [...state.globalItems, ...manualGlobal].filter(item => item.url).sort((a,b)=>b.views-a.views);
   return { settings: state.settings, lastSync: state.lastSync, lastUpdated: state.lastUpdated, syncError: state.syncError, demo: !state.items.length, hasYouTubeKey: !!process.env.YOUTUBE_API_KEY,
-    telegramConfigured: !!process.env.TELEGRAM_BOT_TOKEN, telegramLinked: !!process.env.TELEGRAM_CHAT_ID, telegramLastSentDate: state.telegramLastSentDate,
+    telegramConfigured: !!process.env.TELEGRAM_BOT_TOKEN, telegramLinked: state.telegramSubscribers.length > 0, telegramSubscriberCount: state.telegramSubscribers.length, telegramLastSentDate: state.telegramLastSentDate,
     count: items.length, top: topThree(ranked).map(x=>({...x,trendScore:Math.round(score(x))})),
     items: ranked.map(x=>({...x,trendScore:Math.round(score(x))})),
     globalCount: global.length, globalTop: global.slice(0,3), globalLastSync: state.globalLastSync, globalSyncError: state.globalSyncError,
@@ -195,11 +204,13 @@ setInterval(scheduledSync, 3600000).unref();
 scheduledSync();
 startTelegramBot({
   token: process.env.TELEGRAM_BOT_TOKEN,
-  chatId: process.env.TELEGRAM_CHAT_ID,
   hour: /^([01]?\d|2[0-3])$/.test(process.env.TELEGRAM_DIGEST_HOUR || '') ? Number(process.env.TELEGRAM_DIGEST_HOUR) : 9,
   getSnapshot: publicState,
-  getLastSentDate: () => state.telegramLastSentDate,
-  markSentDate: async day => { state.telegramLastSentDate = day; await save(); },
+  getSubscribers: () => [...state.telegramSubscribers],
+  addSubscriber: async chat => { if (!state.telegramSubscribers.includes(chat)) { state.telegramSubscribers.push(chat); await save(); } },
+  removeSubscriber: async chat => { state.telegramSubscribers = state.telegramSubscribers.filter(id => id !== chat); await save(); },
+  getLastSentDate: chat => state.telegramLastSentByChat[chat],
+  markSentDate: async (chat, day) => { state.telegramLastSentByChat[chat] = day; state.telegramLastSentDate = day; await save(); },
   reportError: error => console.error('Telegram bot:', error.message)
 });
 

@@ -48,9 +48,8 @@ export function globalText(snapshot) {
   ].join('\n').slice(0,4000);
 }
 
-export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSentDate, markSentDate, reportError }) {
+export function startTelegramBot({ token, hour, getSnapshot, getSubscribers, addSubscriber, removeSubscriber, getLastSentDate, markSentDate, reportError }) {
   if (!token) return;
-  const expectedChat = String(chatId || '').trim();
   let offset;
   let sending = false;
   let nextSendAt = 0;
@@ -88,14 +87,21 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
     return Boolean(message);
   };
   const scheduled = async () => {
-    if (!expectedChat || sending) return;
+    if (sending) return;
     const { day, hour: currentHour } = dayAndHour(new Date());
-    if (currentHour < hour || getLastSentDate() === day) return;
+    if (currentHour < hour) return;
     if (!digestText(getSnapshot())) return;
     sending = true;
-    try { await sendDigest(expectedChat); await markSentDate(day); }
-    catch (error) { reportError(error); }
-    finally { sending = false; }
+    try {
+      for (const chat of getSubscribers()) {
+        if (getLastSentDate(chat) === day) continue;
+        try { await sendDigest(chat); await markSentDate(chat, day); }
+        catch (error) {
+          reportError(error);
+          if (error.status === 403 || error.status === 400) await removeSubscriber(chat);
+        }
+      }
+    } finally { sending = false; }
   };
   const poll = async () => {
     let backoffMs = 5000;
@@ -119,17 +125,20 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
           if (!message?.chat?.id || typeof message.text !== 'string') continue;
           const incomingChat = String(message.chat.id);
           const command = message.text.split(/\s+/)[0].split('@')[0].toLowerCase();
-          if (!expectedChat) {
-            if (command === '/start') await send(incomingChat, `Ваш Chat ID: ${incomingChat}\nДобавьте его как TELEGRAM_CHAT_ID в локальный .env и перезапустите сервис.`);
-            continue;
-          }
-          if (incomingChat !== expectedChat) continue;
-          if (['/digest', '/global', '/status'].includes(command)) {
+          if (['/digest', '/global', '/status', '/start', '/help', '/stop'].includes(command)) {
             const key = `${incomingChat}:${command}`;
             if (Date.now() - (commandCooldowns.get(key) || 0) < 30000) continue;
             commandCooldowns.set(key, Date.now());
           }
-          if (command === '/start' || command === '/help') await send(incomingChat, 'Тренд радар подключён. /digest — онлайн-обучение и ЕГЭ, /global — общие тренды по просмотрам, /status — состояние источников. Ежедневная отправка тематической подборки выполняется, пока сервер запущен.');
+          if (command === '/start') {
+            if (message.chat.type === 'private') await addSubscriber(incomingChat);
+            await send(incomingChat, `Тренд радар подключён.${message.chat.type === 'private' ? ' Ежедневная подборка включена.' : ''} /digest — онлайн-обучение и ЕГЭ, /global — общие тренды по просмотрам, /status — состояние источников, /stop — отключить ежедневную подборку.`);
+          }
+          if (command === '/help') await send(incomingChat, '/start — включить ежедневную подборку; /digest — темы онлайн-обучения и ЕГЭ; /global — глобальные тренды; /status — состояние источников; /stop — отключить ежедневную подборку.');
+          if (command === '/stop') {
+            await removeSubscriber(incomingChat);
+            await send(incomingChat, 'Ежедневная подборка отключена. Команды /digest и /global по-прежнему доступны. Для подписки отправьте /start.');
+          }
           if (command === '/digest') await sendDigest(incomingChat);
           if (command === '/global') await send(incomingChat, globalText(getSnapshot()));
           if (command === '/status') {
