@@ -4,3 +4,7 @@
 td .source-link{color:#c4f45d;text-decoration:underline;text-underline-offset:3px}
 
 .platform-status{border:1px solid #3a493d;background:#1e2a27;color:#b9cbbd;border-radius:9px;padding:12px 14px;font-size:13px;line-height:1.5;margin:0 0 14px}.rec-evidence{display:flex;flex-wrap:wrap;gap:10px;margin:20px 0}.rec-evidence span{background:#1b2a27;border:1px solid #456144;border-radius:8px;padding:10px 12px;font-size:10px;letter-spacing:.07em;color:#a9c2ad;font-weight:800}.rec-evidence b{display:block;font-size:18px;letter-spacing:-.03em;color:#e7f6e2;margin-top:4px}.rec-interpret,.rec-test{font-size:13px;line-height:1.6;color:#c7d8c8}.rec-test{border-top:1px solid #456144;padding-top:16px;margin:21px 0 0}.rec-test strong{color:#c4f45d}.rec-caveat{font-size:12px;line-height:1.5;color:#92ac99;margin:12px 0 0}
+
+#login-dialog{max-width:420px}
+.settings-section #connect-bot{grid-column:2;justify-self:start}
+@media(max-width:1100px){.settings-section #connect-bot{grid-column:1}}

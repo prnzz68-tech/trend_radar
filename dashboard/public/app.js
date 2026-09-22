@@ -4,7 +4,7 @@ const num = (n) => n == null ? '—' : fmt.format(n);
 const esc = (value) => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const percent = (x) => `${(x * 100).toFixed(1).replace('.', ',')}%`;
 const rate = (x) => ((x.likes || 0) + (x.comments || 0)) / Math.max(1, x.views);
-let data, filter = 'all';
+let data, filter = 'all', admin = { enabled: false, loggedIn: true, csrf: '' };
 
 function notice(message, kind='info') {
   const el = $('#notice'); el.textContent=message; el.classList.add('show');
@@ -12,7 +12,9 @@ function notice(message, kind='info') {
   el.style.borderColor = kind==='error' ? '#8b4b44' : '#4b6935';
 }
 async function api(path, options={}) {
-  const response = await fetch(path, {...options, headers:{'Content-Type':'application/json',...(options.headers||{})}});
+  const headers = {'Content-Type':'application/json',...(options.headers||{})};
+  if(options.method==='POST' && admin.csrf && path!=='/api/login') headers['X-CSRF-Token']=admin.csrf;
+  const response = await fetch(path, {...options, headers});
   const result = await response.json();
   if (!response.ok) throw Error(result.error || 'Не удалось загрузить данные');
   return result;
@@ -51,6 +53,10 @@ function recommendation(top, demo) {
 }
 function render() {
   const top=data.top;
+  $('#admin-login').hidden=!admin.enabled;
+  $('#admin-login').textContent=admin.loggedIn?'Выйти':'Войти';
+  $('#connect-bot').hidden=!(admin.enabled && admin.loggedIn && data.telegramConfigured);
+  if(admin.enabled){$('#environment-label').textContent='Версия на хостинге';$('#environment-note').textContent='Данные хранятся на сервере';}
   $('#today-date').textContent = new Date().toLocaleDateString('ru-RU',{day:'numeric',month:'long',year:'numeric'});
   $('#region-label').textContent=data.settings.region;
   $('#count').textContent=num(data.count);
@@ -64,7 +70,7 @@ function render() {
   $('#recommendation').innerHTML=recommendation(top,data.demo);
   $('#settings-form').elements.query.value=data.settings.query;
   $('#settings-form').elements.region.value=data.settings.region;
-  const youtubeStatus=data.hasYouTubeKey?'YouTube API подключён. Тематическая и глобальная выдачи обновляются раз в 24 часа, пока локальный сервер работает. Ручное обновление доступно раз в час.':'YouTube API пока не подключён. Для автоматического сбора задайте YOUTUBE_API_KEY перед запуском сервера.';
+  const youtubeStatus=data.hasYouTubeKey?`YouTube API подключён. Тематическая и глобальная выдачи обновляются раз в 24 часа ${admin.enabled?'по расписанию хостинга':'пока локальный сервер работает'}. Ручное обновление доступно раз в час.`:admin.enabled?'YouTube API пока не подключён. Добавьте ключ в закрытый файл настроек хостинга.':'YouTube API пока не подключён. Для автоматического сбора задайте YOUTUBE_API_KEY перед запуском сервера.';
   const limitStatus=Date.parse(data.youtubeBlockedUntil)>Date.now()?`YouTube временно ограничил запросы. Следующая попытка после ${new Date(data.youtubeBlockedUntil).toLocaleString('ru-RU')}.`:'';
   const telegramStatus=!data.telegramConfigured?'Telegram-бот не настроен. Инструкция есть в dashboard/README.md.':`Telegram-бот доступен всем: /start включает ежедневную подборку, /stop отключает её, /digest и /global показывают тренды. Подписчиков: ${data.telegramSubscriberCount || 0}.${data.telegramLastSentDate?` Последняя отправка: ${data.telegramLastSentDate}.`:''}`;
   $('#connection').textContent=[youtubeStatus,limitStatus,telegramStatus].filter(Boolean).join('\n');
@@ -77,14 +83,39 @@ function render() {
   const rows=data.items.filter(x=>filter==='all'||x.platform===filter);
   $('#table-body').innerHTML=rows.length?rows.map(x=>`<tr><td>${esc(x.title)}<small>${esc(x.topic)} · ${new Date(x.publishedAt).toLocaleDateString('ru-RU')}</small></td><td>${esc(x.platform)}</td><td>${num(x.views)}</td><td>${percent(rate(x))}</td><td>${num(x.reach)}</td><td class="${x.source==='demo'?'source-demo':''}">${x.url?`<a class="source-link" href="${esc(x.url)}" target="_blank" rel="noopener noreferrer">Смотреть видео ↗</a><small>${x.source==='youtube'?'YouTube API':'Добавлено вручную'}</small>`:'Пример без ссылки'}</td></tr>`).join(''):`<tr><td colspan="6">Пока нет видео из ${filter==='all'?'выбранных источников':esc(filter)}. Добавьте ролик по ссылке и укажите его метрики.</td></tr>`;
 }
-async function load() { data=await api('/api/state'); render(); }
+async function load() {
+  data=await api('/api/state');
+  admin.enabled=Boolean(data.authRequired);
+  admin.loggedIn=!admin.enabled || Boolean(data.isAdmin);
+  if(admin.enabled && admin.loggedIn && !admin.csrf){const status=await api('/api/auth');admin.csrf=status.csrfToken;}
+  if(!admin.loggedIn) admin.csrf='';
+  render();
+}
+function requireAdmin(){if(!admin.enabled || admin.loggedIn)return true;$('#login-dialog').showModal();return false;}
+$('#admin-login').addEventListener('click',async()=>{
+  if(!admin.loggedIn){$('#login-dialog').showModal();return;}
+  try{await api('/api/logout',{method:'POST'});admin.csrf='';await load();notice('Вы вышли из режима управления.');}catch(error){notice(error.message,'error')}
+});
+$('#login-close').addEventListener('click',()=>$('#login-dialog').close());
+$('#login-form').addEventListener('submit',async(e)=>{
+  e.preventDefault();$('#login-error').textContent='';
+  try{const password=e.target.elements.password.value;const result=await api('/api/login',{method:'POST',body:JSON.stringify({password})});admin.csrf=result.csrfToken;e.target.reset();$('#login-dialog').close();await load();notice('Режим управления открыт.');}
+  catch(error){$('#login-error').textContent=error.message}
+});
+$('#connect-bot').addEventListener('click',async()=>{
+  if(!requireAdmin())return;
+  const button=$('#connect-bot');button.disabled=true;
+  try{await api('/api/webhook',{method:'POST'});notice('Telegram подключён к сайту. Проверьте команду /status в боте.');}
+  catch(error){notice(error.message,'error')}finally{button.disabled=false}
+});
 $('#refresh').addEventListener('click',async()=>{
+  if(!requireAdmin())return;
   const btn=$('#refresh'); btn.disabled=true;
   try { if(!data.hasYouTubeKey){notice('Добавьте ключ YouTube API, чтобы обновлять видео автоматически. Пока можно добавлять их вручную.');return;} const result=await api('/api/sync',{method:'POST'}); await load();notice(`YouTube обновлён: ${result.added} видео по темам, ${result.globalAdded} глобальных.${result.warning?` ${result.warning}`:''}`,result.warning?'error':'info'); }
   catch(e){notice(e.message,'error')}finally{btn.disabled=false}
 });
 document.querySelectorAll('.chip').forEach(btn=>btn.addEventListener('click',()=>{filter=btn.dataset.platform;document.querySelectorAll('.chip').forEach(x=>x.classList.toggle('selected',x===btn));render()}));
-$('#import-open').addEventListener('click',()=>{ $('#import-form').elements.publishedAt.value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);if(filter!=='all')$('#import-form').elements.platform.value=filter;$('#import-dialog').showModal(); });
+$('#import-open').addEventListener('click',()=>{if(!requireAdmin())return;$('#import-form').elements.publishedAt.value=new Date(Date.now()-new Date().getTimezoneOffset()*60000).toISOString().slice(0,16);if(filter!=='all')$('#import-form').elements.platform.value=filter;$('#import-dialog').showModal(); });
 $('#import-close').addEventListener('click',()=>$('#import-dialog').close());
 $('#import-form').addEventListener('submit',async(e)=>{
   e.preventDefault();$('#form-error').textContent='';
@@ -92,6 +123,6 @@ $('#import-form').addEventListener('submit',async(e)=>{
   catch(error){$('#form-error').textContent=error.message}
 });
 $('#settings-form').addEventListener('submit',async(e)=>{
-  e.preventDefault();try{await api('/api/settings',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});await load();notice('Настройки поиска сохранены. Нажмите «Обновить данные», чтобы получить видео по новой теме.');}catch(error){notice(error.message,'error')}
+  e.preventDefault();if(!requireAdmin())return;try{await api('/api/settings',{method:'POST',body:JSON.stringify(Object.fromEntries(new FormData(e.target)))});await load();notice('Настройки поиска сохранены. Нажмите «Обновить данные», чтобы получить видео по новой теме.');}catch(error){notice(error.message,'error')}
 });
 load().catch(e=>notice(e.message,'error'));
