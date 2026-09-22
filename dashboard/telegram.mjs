@@ -53,12 +53,32 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
   const expectedChat = String(chatId || '').trim();
   let offset;
   let sending = false;
+  let nextSendAt = 0;
+  let telegramBlockedUntil = 0;
+  let sendQueue = Promise.resolve();
+  const commandCooldowns = new Map();
+  const pause = ms => new Promise(resolve => setTimeout(resolve, ms));
   const api = async (method, payload = {}) => {
+    await pause(Math.max(0, telegramBlockedUntil - Date.now()));
+    if (method === 'sendMessage') {
+      const queued = sendQueue.then(async () => {
+        await pause(Math.max(0, nextSendAt - Date.now()));
+        nextSendAt = Date.now() + 1000;
+      });
+      sendQueue = queued.catch(() => {});
+      await queued;
+    }
     const response = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload), signal: AbortSignal.timeout(30000)
     });
     const result = await response.json();
-    if (!response.ok || !result.ok) throw Error(`Telegram ${method}: ${result.description || response.status}`);
+    if (!response.ok || !result.ok) {
+      const error = Error(`Telegram ${method}: ${result.description || response.status}`);
+      error.retryAfter = Number(result.parameters?.retry_after) || Number(response.headers.get('retry-after')) || 0;
+      error.status = response.status;
+      if (error.retryAfter) telegramBlockedUntil = Math.max(telegramBlockedUntil, Date.now() + error.retryAfter * 1000);
+      throw error;
+    }
     return result.result;
   };
   const send = (target, text) => api('sendMessage', { chat_id: target, text });
@@ -78,13 +98,21 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
     finally { sending = false; }
   };
   const poll = async () => {
-    try {
-      await api('getMe');
-      console.log('Telegram bot: connected');
-    } catch (error) { reportError(error); return; }
+    let backoffMs = 5000;
+    while (true) {
+      try { await api('getMe'); console.log('Telegram bot: connected'); break; }
+      catch (error) {
+        reportError(error);
+        if (error.status === 401 || error.status === 404) return;
+        await pause(error.retryAfter ? error.retryAfter * 1000 : backoffMs);
+        backoffMs = Math.min(backoffMs * 2, 300000);
+      }
+    }
+    backoffMs = 5000;
     while (true) {
       try {
         const updates = await api('getUpdates', { offset, timeout: 20, allowed_updates: ['message'] });
+        backoffMs = 5000;
         for (const update of updates) {
           offset = update.update_id + 1;
           const message = update.message;
@@ -96,6 +124,11 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
             continue;
           }
           if (incomingChat !== expectedChat) continue;
+          if (['/digest', '/global', '/status'].includes(command)) {
+            const key = `${incomingChat}:${command}`;
+            if (Date.now() - (commandCooldowns.get(key) || 0) < 30000) continue;
+            commandCooldowns.set(key, Date.now());
+          }
           if (command === '/start' || command === '/help') await send(incomingChat, 'Тренд радар подключён. /digest — онлайн-обучение и ЕГЭ, /global — общие тренды по просмотрам, /status — состояние источников. Ежедневная отправка тематической подборки выполняется, пока сервер запущен.');
           if (command === '/digest') await sendDigest(incomingChat);
           if (command === '/global') await send(incomingChat, globalText(getSnapshot()));
@@ -106,7 +139,8 @@ export function startTelegramBot({ token, chatId, hour, getSnapshot, getLastSent
         }
       } catch (error) {
         reportError(error);
-        await new Promise(resolve => setTimeout(resolve, 5000));
+        await pause(error.retryAfter ? error.retryAfter * 1000 : backoffMs + Math.random() * 1000);
+        backoffMs = Math.min(backoffMs * 2, 300000);
       }
     }
   };
